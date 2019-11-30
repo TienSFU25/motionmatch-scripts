@@ -1,0 +1,20 @@
+svg {
+  background: #ddd;
+  font: 10px sans-serif;
+  cursor: crosshair;
+}
+
+.line {
+  cursor: crosshair;
+  fill: none;
+  stroke: #000;
+  stroke-width: 2px;
+  stroke-linejoin: round;
+}
+
+#output {
+  position: relative;
+  top: -2em;
+  left: 0.67em;
+  font: 12px/1.4 monospace;
+}
