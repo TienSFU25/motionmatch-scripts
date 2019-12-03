@@ -33,7 +33,9 @@ function parseBVH (bvhFile) {
                 return toks
             }
         }
-        assert(false, 'file is truncated')
+
+        return ''
+        // assert(false, 'file is truncated')
     }
 
     function getLine (prefix) {
@@ -110,6 +112,8 @@ function parseBVH (bvhFile) {
 
     function parseFrame () {
         var tokens = getTokens()
+        if (tokens == '') return;
+
         assert(tokens.length === parameterCount, `invalid number of channels for frame ${frames.length}`)
         frames.push(tokens.map((x) => +x))
     }
@@ -122,6 +126,7 @@ function parseBVH (bvhFile) {
         var frameTimeTokens = getLine('Frame')
         assert(frameTimeTokens.length === 2 && frameTimeTokens[0] === 'Time:', 'invalid frame time')
         frameTime = +frameTimeTokens[1]
+
         for (var i = 0; i < frames; ++i) {
             parseFrame()
         }

@@ -1,13 +1,26 @@
 const parseBVH = require("./bvhParser");
+const dualSort = require("./utils");
 const fs = require("fs");
 const glMatrix = require("./gl-matrix/gl-matrix");
+const { roundy, appendPointCloud } = require("./geometry");
 
-const mocapDirectory = "../HelloAnim/Assets/Resources/Subset";
-const FPS = 30;
-const numFramesLookahead = 15;
+// const mocapDirectory = "../HelloAnim/Assets/Resources/Subset";
+// const mocapDirectory = "../HelloAnim/Assets/Resources/Little";
+const mocapDirectory = "./sfumocap";
+const boilerplateBvh = fs.readFileSync("./sfumocap/boilerplate.bvh", "utf-8");
+
+const numFramesLookahead = 50;
 const writeTo = "windows/meta.json";
-const trajectoryFile = "traj.js";
-const smaller = "subsample.js";
+const trajectoryFile = "viz/traj.js";
+const smaller = "viz/subsample.js";
+
+// some random frame to match
+const frameToOrder = 600;
+const framesWithTransforms = [];
+const orderedBvh = "ordered.bvh";
+const orderedPointClouds = [];
+// const boilerplateBvh = fs.readFileSync("boilerplate.bvh", "utf-8");
+// const boilerplateBvh = fs.readFileSync("runningBoilerplate.bvh", "utf-8");
 
 let { vec3, vec4, quat } = glMatrix;
 let { atan, sin, cos, sqrt } = Math;
@@ -18,134 +31,25 @@ const nonStupidQuatMultiply = (a, b) => {
     return quat.multiply(quat.create(), a, b);
 };
 
-// 3 decimal points
-const roundy = (a) => {
-    return parseInt(a * 1000) / 1000;
-};
 
-const calculateJointPosRecursivelyWithQuaternion = (joint, frames) => {
-    let pointCloud = joint.pointClouds[currentFrameIndex];
-
-    // Vector4 localQuat = computeLocalQuaternion(joint);
-    let localQuat = computeLocalQuaternion(joint, frames);
-    pointCloud.localQuat = localQuat;
-
-	// /*Coding Part: 2) calculate global rotation quaternion for child nodes*/
-	// joint->Globalquat = computeGlobalQuaternion(joint, localQuat);
-    let globalQuat = computeGlobalQuaternion(joint, localQuat);
-    pointCloud.globalQuat = globalQuat;
-
-	// /*Coding Part: 3) calculate current node's global position*/
-    // Vector4 GlobalPosition = computeGlobalPosition(joint);
-    let globalPos = computeGlobalPosition(joint);
-
-    pointCloud.globalPos = globalPos;
-    
-    for (let i = 0; i < joint.children.length; i++)
-	{
-        if (joint.children[i].name)
-    		calculateJointPosRecursivelyWithQuaternion(joint.children[i], frames);
-	}
-}
-
-const computeLocalQuaternion = (joint, frames) => {
-    let frameIndex = joint.channelOffset;
-
-    if (joint.name == "Hips") {
-        frameIndex = 3;
-    }
-
-    let x = frames[frameIndex] * DegreeToRad;
-    let y = frames[frameIndex + 1] * DegreeToRad;
-    let z = frames[frameIndex + 2] * DegreeToRad;
-
-    let Rx = vec4.clone([sin(0.5 * x), 0, 0, cos(0.5 * x)]);
-    let Ry = vec4.clone([0, sin(0.5 * y), 0, cos(0.5 * y)]);
-    let Rz = vec4.clone([0, 0, sin(0.5 * z), cos(0.5 * z)]);
-
-	// why not zyx?
-    let t1 = quat.multiply(quat.create(), Rx, Ry);
-    let R = quat.multiply(quat.create(), t1, Rz);
-    return R;
-}
-
-const computeGlobalQuaternion = (joint, localQuat) => {
-    if (joint.parent == null) {
-        return localQuat;
-    }
-
-    let parentQuat = joint.parent.pointClouds[currentFrameIndex].globalQuat;
-    let pq = quat.multiply(quat.create(), parentQuat, localQuat);
-
-    return pq;
-}
-
-const computeGlobalPosition = (joint) => {
-    let lt = joint.offset;
-    let localTranslate = vec4.clone([lt[0], lt[1], lt[2], 0]);
-
-    let globalPos;
-
-    if (joint.parent == null) {
-        // globalPos = localTranslate;
-        globalPos = joint.pointClouds[currentFrameIndex].globalPos;
-    } else {
-        let parentPos = joint.parent.pointClouds[currentFrameIndex].globalPos;
-        let parentQuat = joint.parent.pointClouds[currentFrameIndex].globalQuat;
-        let parentQuatInverse = quat.clone([-parentQuat[0], -parentQuat[1], -parentQuat[2], parentQuat[3]]);
-
-        let iden = quat.create();
-        let t1 = quat.multiply(iden, parentQuat, localTranslate);
-        let t2 = quat.multiply(quat.create(), t1, parentQuatInverse);
-        globalPos = quat.add(iden, t2, parentPos);
-    }
-
-    return globalPos;
-}
-
-const appendPointCloud = (bvh) => {
-    currentFrameIndex = 0;
-
-    for (let i = 0; i < bvh.joints.length; i++) {
-        bvh.joints[i].pointClouds = [];
-    }
-    
-    rootJoint = bvh.joints[0];
-    
-    for (let i = 0; i < bvh.frames.length; i++) {
-        currentFrameIndex = i;
-    
-        for (let j = 0; j < bvh.joints.length; j++) {
-            bvh.joints[j].pointClouds.push({
-                localQuat: null,
-                globalQuat: null,
-                globalPos: null
-            });
-        }
-    
-        // need to convert shit into point cloud
-        frameData = bvh.frames[i];
-        let rootPos = vec4.clone([frameData[0], frameData[1], frameData[2], 0]);
-        rootJoint.pointClouds[i].globalPos = rootPos;
-        
-        calculateJointPosRecursivelyWithQuaternion(rootJoint, frameData);
-    }
-}
 
 // let bvh = parseBVH(runningBvh);
 
 // clip => joint * joint pos each time
-const jointsCareAbout = ["LeftFoot", "RightFoot", "Spine", "Neck"];
-const weights = [.25, .25, .25, .25];
+const jointsCareAbout = ["LeftUpLeg", "RightUpLeg", "Hips", "RightHand", "LeftHand", "LeftFoot", "RightFoot", "Spine", "Neck"];
+// const jointsCareAbout = ["Neck"];
+const weights = jointsCareAbout.map(v => 1 / jointsCareAbout.length);
 mocaps = []
 let biggest = 0;
+let rawMocaps = [];
 
 fs.readdir(mocapDirectory, (err, files) => {
-    files = files.filter(v => v.indexOf(".meta") < 0);
+    files = files.filter(v => v.indexOf(".meta") < 0 && v.indexOf("boilerplate") < 0);
     console.log(files);
     files.forEach(file => {
         const mocapFile = fs.readFileSync(mocapDirectory + "/" + file, "utf-8");
         const parsed = parseBVH(mocapFile);
+        rawMocaps.push(parsed);
 
         appendPointCloud(parsed);
 
@@ -188,55 +92,59 @@ fs.readdir(mocapDirectory, (err, files) => {
     let sharedOrder = mocaps[0].order;
     let indexLeftFoot = sharedOrder.indexOf("LeftFoot");
     let indexRightFoot = sharedOrder.indexOf("RightFoot");
-
-    // T(i, j) (trajectory match)
-    const getReferencePoint = (frameData) => {
-        let leftFoot = frameData[indexLeftFoot];
-        let rightFoot = frameData[indexRightFoot];
-
-        let refPoint = [((leftFoot[0] + rightFoot[0]) / 2), ((leftFoot[2] + rightFoot[2]) / 2)];
-        return refPoint;
-    }
-
     let T = [];
-    let refPoints = [];
 
-    // precompute where the foot is at all frames
-    for (let i = 0; i < mocaps.length; i++) {
-        let mocap = mocaps[i];
-        let thisRow = [];
-        let frames = mocap.pointCloudPerFrame;
+    if (indexLeftFoot > 0 && indexRightFoot > 0) {
+        // T(i, j) (trajectory match)
+        const getReferencePoint = (frameData) => {
+            let leftFoot = frameData[indexLeftFoot];
+            let rightFoot = frameData[indexRightFoot];
 
-        refPoints.push(thisRow);
-
-        for (let j = 0; j < mocap.frameCount; j++) {
-            // calc next trajectory
-            // use midpoint of feet
-            let thisFrame = frames[j];
-            let footFromHere = getReferencePoint(thisFrame);
-            thisRow.push(footFromHere);
+            let refPoint = [((leftFoot[0] + rightFoot[0]) / 2), ((leftFoot[2] + rightFoot[2]) / 2)];
+            return refPoint;
         }
-    }
 
-    for (let i = 0; i < mocaps.length; i++) {
-        let mocap = mocaps[i];
-        let thisRow = [];
+        let refPoints = [];
 
-        T.push(thisRow);
+        // precompute where the foot is at all frames
+        for (let i = 0; i < mocaps.length; i++) {
+            let mocap = mocaps[i];
+            let thisRow = [];
+            let frames = mocap.pointCloudPerFrame;
 
-        for (let j = 0; j < mocap.frameCount - numFramesLookahead - 1; j++) {
-            // calc next trajectory
-            // use midpoint of feet
-            let trajectoryFromHere = [];
-            let footFromHere = refPoints[i][j];
+            refPoints.push(thisRow);
 
-            for (let k = 1; k <= numFramesLookahead; k++) {
-                let footOverThere = refPoints[i][j + k];
-                let footDiff = [footOverThere[0] - footFromHere[0], footOverThere[1] - footFromHere[1]];
-                trajectoryFromHere.push([roundy(footDiff[0]), roundy(footDiff[1])]);
+            for (let j = 0; j < mocap.frameCount; j++) {
+                // calc next trajectory
+                // use midpoint of feet
+                let thisFrame = frames[j];
+                let footFromHere = getReferencePoint(thisFrame);
+                thisRow.push(footFromHere);
             }
+        }
 
-            thisRow.push(trajectoryFromHere);
+        for (let i = 0; i < mocaps.length; i++) {
+            let mocap = mocaps[i];
+            let thisRow = [];
+
+            T.push(thisRow);
+
+            for (let j = 0; j < mocap.frameCount - numFramesLookahead - 1; j++) {
+                // calc next trajectory
+                // use midpoint of feet
+                let trajectoryFromHere = [];
+                let footFromHere = refPoints[i][j];
+
+                for (let k = 1; k <= numFramesLookahead; k++) {
+                    let previousFoot = refPoints[i][j + k - 1]
+                    let footOverThere = refPoints[i][j + k];
+                    // let footDiff = [footOverThere[0] - previousFoot[0], footOverThere[1] - previousFoot[1]];
+                    let footDiff = previousFoot;
+                    trajectoryFromHere.push([roundy(footDiff[0]), roundy(footDiff[1])]);
+                }
+
+                thisRow.push(trajectoryFromHere);
+            }
         }
     }
 
@@ -257,30 +165,48 @@ fs.readdir(mocapDirectory, (err, files) => {
 
     for (let i = 0; i < belongsTo.length; i++) {
         let thisRow = [];
-        
+        let [clipNum1, frameNum1] = belongsTo[i];
+        let srcFrame = mocaps[clipNum1].pointCloudPerFrame[frameNum1];
+
         for (let j = 0; j < belongsTo.length; j++) {
             thisRow.push(NaN);
         }
 
         D.push(thisRow);
 
-        for (let j = 0; j < cap; j++) {
-            let [clipNum1, frameNum1] = belongsTo[i];
-            let [clipNum2, frameNum2] = belongsTo[j];
+        if (i == frameToOrder) {
+            orderedPointClouds.push(srcFrame);
 
-            let srcFrame = mocaps[clipNum1].pointCloudPerFrame[frameNum1];
-            let destFrame = mocaps[clipNum2].pointCloudPerFrame[frameNum2];
-
-            // console.log("vloz");
-            let df = diff(srcFrame, destFrame);
-            df = roundy(df);
-            D[i][j] = df;
-
-            if (df > biggest) biggest = df;
-
-            // symmetry
-            if (i !== j) {
-                D[j][i] = df;
+            for (let k = 0; k < belongsTo.length; k++) {
+                let [clipNum2, frameNum2] = belongsTo[k];
+    
+                let destFrame = mocaps[clipNum2].pointCloudPerFrame[frameNum2];
+                let rawDestFrame = rawMocaps[clipNum2].frames[frameNum2];
+                let df = diff(srcFrame, destFrame, rawDestFrame, true);
+                df = roundy(df);
+                D[i][k] = df;
+    
+                if (df > biggest) biggest = df;
+            }
+            var asdf = 0;
+        } else {
+            for (let j = 0; j < cap; j++) {
+                let [clipNum2, frameNum2] = belongsTo[j];
+    
+                let destFrame = mocaps[clipNum2].pointCloudPerFrame[frameNum2];
+                let rawDestFrame = rawMocaps[clipNum2].frames[frameNum2];
+    
+                // console.log("vloz");
+                let df = diff(srcFrame, destFrame, rawDestFrame, false);
+                df = roundy(df);
+                D[i][j] = df;
+    
+                if (df > biggest) biggest = df;
+    
+                // symmetry
+                if (i !== j) {
+                    D[j][i] = df;
+                }
             }
         }
 
@@ -298,7 +224,28 @@ fs.readdir(mocapDirectory, (err, files) => {
 
     const sub = subsample(D);
 
-    // console.log(mocaps);
+    // write the ordered BVH for vizzy
+    const frameToStr = (f) => {
+        return f.join(' ');
+    };
+
+    let [clipNumber, frameNumber] = belongsTo[frameToOrder];
+    let frameToMatch = rawMocaps[clipNumber].frames[frameNumber];
+    let DofFrameToMatch = D[frameToOrder];
+    let sortedFrames = dualSort(DofFrameToMatch, framesWithTransforms);
+
+    let bvhAsStr = boilerplateBvh;
+    bvhAsStr += `Frames: ${sortedFrames.length + 1}\n`;
+    bvhAsStr += `Frame Time: 0.0333333\n`;
+    bvhAsStr += frameToStr(frameToMatch) + '\n';
+
+    for (let i = 0; i < sortedFrames.length; i++) {
+        let correspondingFrame = sortedFrames[i];
+
+        bvhAsStr += frameToStr(correspondingFrame) + '\n';
+    }
+
+    // write to files
     fs.writeFile(writeTo, JSON.stringify(meta, null, 4), (err) => {
         if (err) {
             console.log("error in writing file");
@@ -323,12 +270,20 @@ fs.readdir(mocapDirectory, (err, files) => {
         console.log("write sample matrix success!");
     });
 
-    console.log(1);
+    fs.writeFile(orderedBvh, bvhAsStr, (err) => {
+        if (err) {
+            console.log("error in writing set of frames thingy");
+        }
+
+        console.log("write set of frames success!");
+    });
+
+    console.log("done!");
     // debugger;
 });
 
 const origin = vec3.create([0, 0, 0]);
-const diff = (frame1, frame2) => {
+const diff = (frame1, frame2, rawFrame2, saveTransforms) => {
     assert(frame1.length == weights.length, "frame1 not equal length with weights");
     assert(frame2.length == weights.length, "frame1 not equal length with weights");
 
@@ -375,6 +330,14 @@ const diff = (frame1, frame2) => {
         return rotated;
     });
 
+    if (saveTransforms) {
+        let transformedFrame2 = applyTransformToRawFrame(rawFrame2, x_0, z_0, theta);
+        framesWithTransforms.push(transformedFrame2);
+        // framesWithTransforms.push(rawFrame2);
+
+        orderedPointClouds.push(secondFramePoints);
+    }
+
     let weightedDiff = frame1.map((v, i) => {
         let sf = secondFramePoints[i];
         return weights[i] * sqrt((v[0] - sf[0]) ** 2 + (v[1] - sf[1]) ** 2 + (v[2] - sf[2]) ** 2);
@@ -388,6 +351,17 @@ function assert (cond, msg) {
     if (!cond) {
         throw new Error(`error: ${msg}`)
     }
+}
+
+const applyTransformToRawFrame = (rawFrame, x_0, z_0, theta) => {
+    let newFrame = rawFrame.map(v => v);
+    newFrame[0] = 0;
+    newFrame[2] = 0;
+    // newFrame[3] = 0;
+    // newFrame[4] = 0;
+    // newFrame[5] = 0;
+
+    return newFrame;
 }
 
 const subsample = (matrix, factor = 2) => {

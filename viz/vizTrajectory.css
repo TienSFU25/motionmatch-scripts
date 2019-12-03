@@ -1,0 +1,37 @@
+body {
+    font-family: "Helvetica Neue", Helvetica, sans-serif;
+    font-size: 12px;
+      user-select: none;
+  }
+  svg {
+      box-shadow: 0px 0px 40px -5px rgba(0,0,0,0.3);
+      border-radius: 5px;
+      /* margin: 20px; */
+  }
+  .arrow-line {
+    cursor: crosshair;
+    fill: none;
+    stroke: #000;
+    stroke-width: 5px;
+    stroke-linejoin: round;
+  }
+
+  svg circle {
+      /* fill: white; */
+      stroke: #aaa;
+  }
+
+  svg .points-menu g {
+      opacity: 0.2;
+  }
+  svg .points-menu g.active {
+      cursor: pointer;
+      opacity: 1;
+  }
+  svg .points-menu line {
+      stroke: #777;
+      stroke-width: 3;
+  }
+  svg .points-menu rect {
+      fill: white;
+  }

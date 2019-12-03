@@ -19,7 +19,7 @@ var trajTableName = "trajectories";
 
 const insertMocapOrder = () => {
     db.serialize(function() {
-    //   db.run("CREATE TABLE mocapOrder (fileName TEXT)");
+      db.run("CREATE TABLE mocapOrder (fileName TEXT)");
         
         var stmt = db.prepare("INSERT INTO mocapOrder VALUES (?)");
         for (var i = 0; i < mocapOrder.length; i++) {
@@ -40,7 +40,7 @@ const arrayToText = (arr) => {
 
 const insertBelongsTo = () => {
     db.serialize(function() {
-        // db.run(`CREATE TABLE ${belongsToTableName} (value TEXT)`);
+        db.run(`CREATE TABLE ${belongsToTableName} (value TEXT)`);
         
         var stmt = db.prepare(`INSERT INTO ${belongsToTableName} VALUES (?)`);
 
@@ -92,9 +92,9 @@ const insertTrajectories = () => {
     });        
 };
 
-// insertMocapOrder();
-// insertBelongsTo();
-// insertDij();
+insertMocapOrder();
+insertBelongsTo();
+insertDij();
 insertTrajectories();
 
 db.close();
